@@ -1,8 +1,10 @@
 package ro.teamnet.zth;
 
 import com.sun.corba.se.spi.ior.ObjectKey;
+import org.codehaus.jackson.map.ObjectMapper;
 import ro.teamnet.zth.api.annotations.MyController;
 import ro.teamnet.zth.api.annotations.MyRequestMethod;
+import ro.teamnet.zth.api.annotations.MyRequestParam;
 import ro.teamnet.zth.appl.controller.DepartmentController;
 import ro.teamnet.zth.appl.controller.EmployeeController;
 import ro.teamnet.zth.fmk.AnnotationScanUtils;
@@ -15,8 +17,12 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
+import static javafx.scene.input.KeyCode.P;
 import static javafx.scene.input.KeyCode.T;
 
 /**
@@ -50,13 +56,16 @@ public class DispatcherServlet extends HttpServlet {
                 for (Method controllerMethod : controllerMethods) {
                     if (controllerMethod.isAnnotationPresent(MyRequestMethod.class)) {
                         MyRequestMethod myRequestMethod = controllerMethod.getAnnotation(MyRequestMethod.class);
-                        controllerUrlPath += myRequestMethod.urlPath();
+                        String methodUrl = myRequestMethod.urlPath();
+
+                        String urlPath = controllerUrlPath + methodUrl;
 
                         MethodAttributes attributes = new MethodAttributes();
                         attributes.setMethodName(controllerMethod.getName());
                         attributes.setMethodType(myRequestMethod.methodType());
                         attributes.setControllerClass(controller.getName());
-                        allowedMethods.put(controllerUrlPath, attributes);
+                        attributes.setParameterType(controllerMethod.getParameterTypes());
+                        allowedMethods.put(urlPath, attributes);
                     }
                 }
             }
@@ -78,63 +87,79 @@ public class DispatcherServlet extends HttpServlet {
         Object r = null;
         try {
             // Transmitere spre procesare - dispatch()
-            r = dispatch(req, resp);
-            reply(r, req, resp);
-        }catch (IOException e) {
-            e.printStackTrace();
-            sendExceptionError(e, req, resp);
+            r = dispatch(resp, req);
         }catch(Exception e){
             e.printStackTrace();
             sendExceptionError(e, req, resp);
         }
 
+        try {
+            reply(r, req, resp);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
-        //	Transmitere raspunsului obtinut in urma procesarii catre client - reply()
-
-
-        // 	Tratarea posibilelor erori de procesare - sendExceptionError()
     }
 
-    protected Object dispatch(HttpServletRequest req, HttpServletResponse resp) throws ClassNotFoundException, IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException {
+    private Object dispatch(HttpServletResponse resp, HttpServletRequest req) throws ServletException, IOException {
+        //resp.getWriter().write("A mers");
+        String path = req.getPathInfo();
 
-        String url = req.getPathInfo();
-
-//        //  Vrific daca incepe cu /employees
-//        if(url.startsWith("/employees")){
-//            EmployeeController employeeController = new EmployeeController();
-//            String result = employeeController.getAllEmployees();
-//            return result;
-//        }
-//        //  Vrific daca incepe cu /departments
-//        else{
-//            if(url.startsWith("/departments")){
-//                DepartmentController departmentController = new DepartmentController();
-//                String result = departmentController.getAllDepartments();
-//                return result;
-//            }
-//        }
-
-        for(String urlPath : allowedMethods.keySet()){
-            MethodAttributes methodAttributes = allowedMethods.get(urlPath);
-
-            if(methodAttributes != null){
-                String className = methodAttributes.getControllerClass();
-                Class controllerClass = Class.forName(className);
+        if (allowedMethods.containsKey(path)) {
+            MethodAttributes methAtt = allowedMethods.get(path);
+            String controllerName = methAtt.getControllerClass();
+            try {
+                Class<?> controllerClass = Class.forName(controllerName);
                 Object controllerInstance = controllerClass.newInstance();
-                Method method =  controllerClass.getMethod(methodAttributes.getMethodName());
-                Object result = method.invoke(controllerInstance);
-                return result;
-            }else{
 
+                Method method = controllerClass.getMethod(methAtt.getMethodName(), methAtt.getParameterType());
+
+                Parameter[] parameters = method.getParameters();
+                List<Object> paramenterValues = new ArrayList<>();
+                for(Parameter parameter : parameters){
+                    if(parameter.isAnnotationPresent(MyRequestParam.class)){
+                        MyRequestParam annotation = parameter.getAnnotation(MyRequestParam.class);
+                        String name = annotation.name();
+                        String requestParameterValue = req.getParameter(name);
+                        Class<?> type = parameter.getType();
+                        Object Obj = new ObjectMapper().readValue(requestParameterValue, type);
+                        paramenterValues.add(Obj);
+                    }
+                }
+                return method.invoke(controllerInstance, paramenterValues.toArray());
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            } catch (InstantiationException e) {
+                e.printStackTrace();
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            } catch (NoSuchMethodException e) {
+                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
             }
 
         }
-        return "Hello";
+
+
+        /*if (path.startsWith("/employees")) {
+            EmployeeController empController = new EmployeeController();
+            return empController.getAllEmployees();
+        }
+        else{
+            if(path.startsWith("/departments")){
+                DepartmentController depController = new DepartmentController();
+                return depController.getAllDepartments();
+            }
+        }*/
+        return "Ce faci tu aici?!"+req.getParameter("id");
     }
 
     protected void reply(Object r, HttpServletRequest req, HttpServletResponse resp) throws IOException {
 
-            resp.getWriter().write(r.toString());
+        ObjectMapper objectMapper = new ObjectMapper();
+        String json = objectMapper.writeValueAsString(r);
+        resp.getWriter().write(json);
 
     }
 
