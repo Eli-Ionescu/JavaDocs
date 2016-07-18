@@ -3,6 +3,7 @@ package ro.teamnet.zth;
 import com.sun.corba.se.spi.ior.ObjectKey;
 import org.codehaus.jackson.map.ObjectMapper;
 import ro.teamnet.zth.api.annotations.MyController;
+import ro.teamnet.zth.api.annotations.MyRequestBodyParam;
 import ro.teamnet.zth.api.annotations.MyRequestMethod;
 import ro.teamnet.zth.api.annotations.MyRequestParam;
 import ro.teamnet.zth.appl.controller.DepartmentController;
@@ -14,6 +15,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -78,8 +80,18 @@ public class DispatcherServlet extends HttpServlet {
     }
 
     @Override
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+       dispatchReply(req, resp, "DELETE");
+    }
+
+    @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
        dispatchReply(req, resp, "POST");
+    }
+
+    @Override
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        dispatchReply(req, resp, "PUT");
     }
 
     protected void dispatchReply(HttpServletRequest req, HttpServletResponse resp, String method) {
@@ -102,9 +114,8 @@ public class DispatcherServlet extends HttpServlet {
     }
 
     private Object dispatch(HttpServletResponse resp, HttpServletRequest req) throws ServletException, IOException {
-        //resp.getWriter().write("A mers");
-        String path = req.getPathInfo();
 
+        String path = req.getPathInfo();
         if (allowedMethods.containsKey(path)) {
             MethodAttributes methAtt = allowedMethods.get(path);
             String controllerName = methAtt.getControllerClass();
@@ -117,13 +128,26 @@ public class DispatcherServlet extends HttpServlet {
                 Parameter[] parameters = method.getParameters();
                 List<Object> paramenterValues = new ArrayList<>();
                 for(Parameter parameter : parameters){
+                    Class<?> type;
                     if(parameter.isAnnotationPresent(MyRequestParam.class)){
                         MyRequestParam annotation = parameter.getAnnotation(MyRequestParam.class);
                         String name = annotation.name();
                         String requestParameterValue = req.getParameter(name);
-                        Class<?> type = parameter.getType();
-                        Object Obj = new ObjectMapper().readValue(requestParameterValue, type);
-                        paramenterValues.add(Obj);
+                        type = parameter.getType();
+                        Object requestObject = requestParameterValue;
+                        if(! type.equals(String.class)){
+                            requestObject = new ObjectMapper().readValue(requestParameterValue, type);
+                        }
+                        paramenterValues.add(requestObject);
+                    }else{
+                        if(parameter.isAnnotationPresent(MyRequestBodyParam.class)){
+
+                            BufferedReader body = req.getReader();
+                            ObjectMapper objectMapper = new ObjectMapper();
+                            type = parameter.getType();
+                            Object requestBodyObject = objectMapper.readValue(body, type);
+                            paramenterValues.add(requestBodyObject);
+                        }
                     }
                 }
                 return method.invoke(controllerInstance, paramenterValues.toArray());

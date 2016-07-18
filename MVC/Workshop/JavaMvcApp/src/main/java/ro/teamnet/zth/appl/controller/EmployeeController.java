@@ -27,7 +27,7 @@ public class EmployeeController {
     }
 
     @MyRequestMethod(urlPath = "/delete")
-    public void deleteOneEmployee(Long id){
+    public void deleteOneEmployee(@MyRequestParam(name="id")Long id){
         employeeService.deleteOneEmployee(id);
     }
 
